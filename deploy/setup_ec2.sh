@@ -14,7 +14,21 @@
 set -euo pipefail
 
 APP_DIR="$(pwd)"
-SERVICE_USER="trading-bot"
+
+# Under /home/<user>, that user's home directory is typically not traversable
+# by other accounts (mode 750), so a dedicated system user can't chdir into
+# it even without ProtectHome — systemd fails with status=200/CHDIR. Run as
+# the repo's own owner in that case instead of creating a separate account.
+case "$APP_DIR" in
+  /home/*)
+    SERVICE_USER="$(stat -c '%U' "$APP_DIR")"
+    CREATE_SERVICE_USER=false
+    ;;
+  *)
+    SERVICE_USER="trading-bot"
+    CREATE_SERVICE_USER=true
+    ;;
+esac
 
 if [ "$(id -u)" -ne 0 ]; then
   echo "Run this script with sudo." >&2
@@ -38,9 +52,13 @@ fi
 
 apt-get install -y python3.12 python3.12-venv
 
-echo "==> Creating dedicated service user (no login shell)"
-if ! id "$SERVICE_USER" &>/dev/null; then
-  useradd --system --home "$APP_DIR" --shell /usr/sbin/nologin "$SERVICE_USER"
+if [ "$CREATE_SERVICE_USER" = true ]; then
+  echo "==> Creating dedicated service user (no login shell)"
+  if ! id "$SERVICE_USER" &>/dev/null; then
+    useradd --system --home "$APP_DIR" --shell /usr/sbin/nologin "$SERVICE_USER"
+  fi
+else
+  echo "==> Running as existing user '$SERVICE_USER' (owner of $APP_DIR)"
 fi
 
 echo "==> Creating virtualenv and installing dependencies"
@@ -52,18 +70,25 @@ python3.12 -m venv "$APP_DIR/.venv"
 echo "==> Preparing logs directory"
 mkdir -p "$APP_DIR/logs"
 
+SERVICE_GROUP="$(id -gn "$SERVICE_USER")"
+
 echo "==> Fixing ownership and permissions"
-chown -R "$SERVICE_USER:$SERVICE_USER" "$APP_DIR"
+# Idempotent even on a re-run after a previous attempt used a different
+# SERVICE_USER (e.g. a prior /opt-style run left files owned by a
+# now-unused 'trading-bot' account).
+chown -R "$SERVICE_USER:$SERVICE_GROUP" "$APP_DIR"
 if [ -f "$APP_DIR/.env" ]; then
   chmod 600 "$APP_DIR/.env"
-  chown "$SERVICE_USER:$SERVICE_USER" "$APP_DIR/.env"
+  chown "$SERVICE_USER:$SERVICE_GROUP" "$APP_DIR/.env"
 else
   echo "WARNING: $APP_DIR/.env not found. Copy your paper-trading credentials there" >&2
   echo "         (chmod 600) before starting the service." >&2
 fi
 
-echo "==> Generating systemd unit for APP_DIR=$APP_DIR"
+echo "==> Generating systemd unit for APP_DIR=$APP_DIR (user=$SERVICE_USER)"
 sed -e "s|/opt/trading-bot|$APP_DIR|g" \
+    -e "s|^User=.*|User=$SERVICE_USER|" \
+    -e "s|^Group=.*|Group=$SERVICE_GROUP|" \
   "$APP_DIR/deploy/trading-bot.service" > /etc/systemd/system/trading-bot.service
 
 case "$APP_DIR" in
