@@ -28,7 +28,15 @@ fi
 
 echo "==> Installing system dependencies"
 apt-get update -y
-apt-get install -y python3.12 python3.12-venv python3-pip
+apt-get install -y software-properties-common python3-pip
+
+if ! apt-cache show python3.12 &>/dev/null; then
+  echo "    python3.12 not in default repos (Ubuntu 22.04 ships 3.10) — adding deadsnakes PPA"
+  add-apt-repository -y ppa:deadsnakes/ppa
+  apt-get update -y
+fi
+
+apt-get install -y python3.12 python3.12-venv
 
 echo "==> Creating dedicated service user (no login shell)"
 if ! id "$SERVICE_USER" &>/dev/null; then
