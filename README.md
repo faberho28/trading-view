@@ -127,9 +127,9 @@ the [live-mode unlock criteria](#live-mode-unlock-criteria). Deploy it to a
 small always-on instance instead (e.g. an EC2 `t3.micro`).
 
 ```bash
-# On the instance:
-git clone <your-repo-url> /opt/trading-bot
-cd /opt/trading-bot
+# On the instance — clone wherever you like, no need to move it to /opt:
+git clone <your-repo-url>
+cd trading-view
 
 # Copy your .env (paper credentials) over — never via git, never in shell
 # history. scp it, or paste it interactively with `cat > .env` then chmod 600.
@@ -138,6 +138,10 @@ sudo bash deploy/setup_ec2.sh
 sudo systemctl start trading-bot
 sudo journalctl -u trading-bot -f   # tail logs
 ```
+
+`setup_ec2.sh` detects the repo path automatically and generates the
+systemd unit for wherever you cloned it (`/opt/...`, `/home/ubuntu/...`,
+anywhere).
 
 `deploy/trading-bot.service` runs the bot as a dedicated, unprivileged
 `trading-bot` system user (no login shell) under systemd, restarts it
