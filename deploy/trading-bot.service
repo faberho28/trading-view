@@ -13,6 +13,9 @@
 Description=Trading bot (paper mode) - hourly orchestrator loop
 After=network-online.target
 Wants=network-online.target
+# Restart storms (e.g. bad credentials) should not spin forever.
+StartLimitIntervalSec=600
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -23,9 +26,6 @@ EnvironmentFile=/opt/trading-bot/.env
 ExecStart=/opt/trading-bot/.venv/bin/python -m trading_bot
 Restart=on-failure
 RestartSec=30
-# Restart storms (e.g. bad credentials) should not spin forever.
-StartLimitIntervalSec=600
-StartLimitBurst=5
 
 # Hardening: the bot only needs network + its own working directory.
 NoNewPrivileges=true
