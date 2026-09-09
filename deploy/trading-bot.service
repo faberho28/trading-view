@@ -1,0 +1,38 @@
+# systemd unit for running the trading bot continuously on an EC2 instance.
+#
+# Install:
+#   sudo cp deploy/trading-bot.service /etc/systemd/system/trading-bot.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable trading-bot
+#   sudo systemctl start trading-bot
+#
+# Requires: the repo checked out at /opt/trading-bot, a venv at /opt/trading-bot/.venv,
+# and a .env file at /opt/trading-bot/.env (see .env.example) with 0600 permissions.
+
+[Unit]
+Description=Trading bot (paper mode) - hourly orchestrator loop
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=trading-bot
+Group=trading-bot
+WorkingDirectory=/opt/trading-bot
+EnvironmentFile=/opt/trading-bot/.env
+ExecStart=/opt/trading-bot/.venv/bin/python -m trading_bot
+Restart=on-failure
+RestartSec=30
+# Restart storms (e.g. bad credentials) should not spin forever.
+StartLimitIntervalSec=600
+StartLimitBurst=5
+
+# Hardening: the bot only needs network + its own working directory.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/opt/trading-bot/logs
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

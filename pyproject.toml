@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "trading-bot"
+version = "0.1.0"
+description = "Hexagonal paper-trading bot: technical S/R breakout signal + 9-guardrail risk manager on Alpaca (paper mode only)."
+requires-python = ">=3.12"
+readme = "README.md"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

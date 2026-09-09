@@ -1,0 +1,32 @@
+# Non-secret configuration. Anything a reviewer should see in the diff goes here;
+# anything that leaks money (API keys) goes in .env instead.
+
+watchlist:
+  - symbol: AAPL
+    sector: tech
+  - symbol: MSFT
+    sector: tech
+  - symbol: SPY
+    sector: index
+  - symbol: NVDA
+    sector: tech
+  - symbol: GOOGL
+    sector: tech
+
+bar_timeframe: "1H"
+lookback_bars: 200
+
+# Risk guardrail thresholds (Requirement 3, spec)
+max_risk_per_trade_pct: 0.01        # 1% of equity
+max_position_value_pct: 0.10        # 10% of equity
+daily_loss_cap_pct: 0.03            # -3% of equity halts new trades for the session
+max_open_positions: 5
+min_reward_risk_ratio: 2.0
+correlation_basket_max: 2           # max concurrent positions per correlated basket
+slippage_max_pct: 0.003             # 0.3%
+market_edge_buffer_minutes: 5       # skip trades within 5 min of open/close
+kill_switch_consecutive_losses: 3
+kill_switch_api_errors: 5
+kill_switch_api_error_window_minutes: 15
+
+audit_log_path: "logs/audit.jsonl"

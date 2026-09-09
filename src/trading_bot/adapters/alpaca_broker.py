@@ -1,0 +1,137 @@
+"""AlpacaBrokerAdapter: implements BrokerPort against Alpaca's paper trading API.
+
+Clients are injected via the constructor (never constructed here from env),
+so tests substitute `MagicMock()` clients and never touch the network.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from decimal import Decimal
+from typing import Any
+
+from trading_bot.domain.models import (
+    Account,
+    Bar,
+    MarketClock,
+    OrderResult,
+    Position,
+    TradeIntent,
+)
+from trading_bot.ports.broker import BrokerError
+
+
+class AlpacaBrokerAdapter:
+    def __init__(self, trading_client: Any, data_client: Any) -> None:
+        self._trading_client = trading_client
+        self._data_client = data_client
+
+    def get_account(self) -> Account:
+        try:
+            acct = self._trading_client.get_account()
+        except Exception as exc:  # noqa: BLE001 - SDK exceptions vary by version
+            raise BrokerError(f"get_account failed: {exc}") from exc
+        return Account(
+            equity=Decimal(str(acct.equity)),
+            cash=Decimal(str(acct.cash)),
+            buying_power=Decimal(str(acct.buying_power)),
+        )
+
+    def get_positions(self) -> list[Position]:
+        try:
+            raw_positions = self._trading_client.get_all_positions()
+        except Exception as exc:  # noqa: BLE001
+            raise BrokerError(f"get_positions failed: {exc}") from exc
+        return [
+            Position(
+                symbol=p.symbol,
+                qty=int(float(p.qty)),
+                avg_entry_price=Decimal(str(p.avg_entry_price)),
+                unrealized_pl=Decimal(str(p.unrealized_pl)),
+                sector=getattr(p, "sector", "unknown"),
+            )
+            for p in raw_positions
+        ]
+
+    def get_bars(self, symbol: str, limit: int) -> list[Bar]:
+        from alpaca.data.requests import StockBarsRequest
+        from alpaca.data.timeframe import TimeFrame
+
+        request = StockBarsRequest(
+            symbol_or_symbols=symbol, timeframe=TimeFrame.Hour, limit=limit
+        )
+        try:
+            response = self._data_client.get_stock_bars(request)
+        except Exception as exc:  # noqa: BLE001
+            raise BrokerError(f"get_bars({symbol}) failed: {exc}") from exc
+
+        raw_bars = response[symbol] if hasattr(response, "__getitem__") else response.data[symbol]
+        return [
+            Bar(
+                symbol=symbol,
+                timestamp=b.timestamp,
+                open=Decimal(str(b.open)),
+                high=Decimal(str(b.high)),
+                low=Decimal(str(b.low)),
+                close=Decimal(str(b.close)),
+                volume=int(b.volume),
+            )
+            for b in raw_bars
+        ]
+
+    def get_latest_price(self, symbol: str) -> Decimal:
+        from alpaca.data.requests import StockLatestTradeRequest
+
+        request = StockLatestTradeRequest(symbol_or_symbols=symbol)
+        try:
+            response = self._data_client.get_stock_latest_trade(request)
+        except Exception as exc:  # noqa: BLE001
+            raise BrokerError(f"get_latest_price({symbol}) failed: {exc}") from exc
+        trade = response[symbol] if hasattr(response, "__getitem__") else response
+        return Decimal(str(trade.price))
+
+    def place_order(self, intent: TradeIntent) -> OrderResult:
+        from alpaca.trading.enums import OrderSide, TimeInForce
+        from alpaca.trading.requests import LimitOrderRequest
+
+        side = OrderSide.BUY if intent.side.value == "BUY" else OrderSide.SELL
+        request = LimitOrderRequest(
+            symbol=intent.symbol,
+            qty=intent.qty,
+            side=side,
+            time_in_force=TimeInForce.DAY,
+            limit_price=float(intent.limit_price),
+            client_order_id=intent.client_order_id,
+        )
+        try:
+            order = self._trading_client.submit_order(request)
+        except Exception as exc:  # noqa: BLE001
+            raise BrokerError(f"place_order({intent.symbol}) failed: {exc}") from exc
+        return OrderResult(
+            order_id=str(order.id),
+            client_order_id=intent.client_order_id,
+            status=str(order.status),
+            filled_qty=int(float(order.filled_qty or 0)),
+            filled_avg_price=(
+                Decimal(str(order.filled_avg_price)) if order.filled_avg_price else None
+            ),
+            submitted_at=order.submitted_at or datetime.now(timezone.utc),
+        )
+
+    def cancel_order(self, order_id: str) -> None:
+        try:
+            self._trading_client.cancel_order_by_id(order_id)
+        except Exception as exc:  # noqa: BLE001
+            raise BrokerError(f"cancel_order({order_id}) failed: {exc}") from exc
+
+    def is_market_open(self) -> MarketClock:
+        try:
+            clock = self._trading_client.get_clock()
+        except Exception as exc:  # noqa: BLE001
+            raise BrokerError(f"is_market_open failed: {exc}") from exc
+        return MarketClock(
+            is_open=bool(clock.is_open),
+            next_open=clock.next_open,
+            next_close=clock.next_close,
+            now=clock.timestamp,
+        )
