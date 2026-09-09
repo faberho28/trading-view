@@ -70,11 +70,17 @@ class Orchestrator:
                 )
             return
 
+        # Alpaca's clock.next_open is always the *next* scheduled open. While
+        # the market is open, that's tomorrow's open, not today's — so
+        # `now - next_open` is a large negative timedelta and would always
+        # be "< edge_buffer", incorrectly rejecting every cycle all day.
+        # There is no "most recent open" field to compare against, so we
+        # only guard the close-side edge here; at this bot's 1H cadence the
+        # chance of a cycle landing inside the first 5 minutes after open is
+        # already negligible (it would require the hourly wake to coincide
+        # almost exactly with the session start).
         edge_buffer = timedelta(minutes=5)
-        if not clock.is_open or (
-            (clock.now - clock.next_open) < edge_buffer
-            or (clock.next_close - clock.now) < edge_buffer
-        ):
+        if not clock.is_open or (clock.next_close - clock.now) < edge_buffer:
             for symbol in self.watchlist:
                 self.audit_logger.write(
                     {"cycle_id": cycle_id, "symbol": symbol, "final_action": "SKIPPED", "reason": "market_hours"}

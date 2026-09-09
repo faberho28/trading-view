@@ -119,12 +119,27 @@ def test_market_hours_window_pass(buy_signal, passing_ctx):
     assert result.passed
 
 
-def test_market_hours_window_fail(buy_signal, sample_account, no_positions, passing_session_snapshot):
+def test_market_hours_window_fail_near_close(buy_signal, sample_account, no_positions, passing_session_snapshot):
     from trading_bot.domain.models import MarketClock
 
-    now = datetime(2026, 9, 8, 13, 30, 30, tzinfo=timezone.utc)
+    # next_open must stay in the future even while open (real Alpaca
+    # semantics) — this case exercises the close-side edge buffer instead.
+    now = datetime(2026, 9, 8, 19, 58, 0, tzinfo=timezone.utc)
     clock = MarketClock(
-        is_open=True, next_open=now - timedelta(minutes=2), next_close=now + timedelta(hours=6), now=now
+        is_open=True, next_open=now + timedelta(hours=14), next_close=now + timedelta(minutes=2), now=now
+    )
+    ctx = make_ctx(sample_account, no_positions, passing_session_snapshot, Decimal("100"), clock)
+    g = MarketHoursWindowGuardrail(edge_buffer_minutes=5)
+    result = g.check(buy_signal, ctx, proposed_qty=1)
+    assert not result.passed
+
+
+def test_market_hours_window_closed(buy_signal, sample_account, no_positions, passing_session_snapshot):
+    from trading_bot.domain.models import MarketClock
+
+    now = datetime(2026, 9, 8, 3, 0, 0, tzinfo=timezone.utc)
+    clock = MarketClock(
+        is_open=False, next_open=now + timedelta(hours=10), next_close=now + timedelta(hours=16), now=now
     )
     ctx = make_ctx(sample_account, no_positions, passing_session_snapshot, Decimal("100"), clock)
     g = MarketHoursWindowGuardrail(edge_buffer_minutes=5)

@@ -86,9 +86,16 @@ class FailOneSymbolSignalSource:
 
 
 def _open_clock() -> MarketClock:
+    # Mirrors real Alpaca semantics: next_open is always the *next*
+    # scheduled open (tomorrow's, while today's session is in progress),
+    # never a past timestamp. A fixture using a past next_open masked the
+    # production bug where the orchestrator compared now - next_open.
     now = datetime(2026, 9, 8, 15, 0, tzinfo=timezone.utc)
     return MarketClock(
-        is_open=True, next_open=now - timedelta(hours=5), next_close=now + timedelta(hours=5), now=now
+        is_open=True,
+        next_open=now + timedelta(hours=19),
+        next_close=now + timedelta(hours=5),
+        now=now,
     )
 
 

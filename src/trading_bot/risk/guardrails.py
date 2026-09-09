@@ -171,14 +171,18 @@ class MarketHoursWindowGuardrail:
         if not clock.is_open:
             return GuardrailResult(self.name, False, "market closed", {})
         buffer_seconds = self.edge_buffer_minutes * 60
-        since_open = (clock.now - clock.next_open).total_seconds()
+        # clock.next_open is always the *next* scheduled open. While the
+        # market is open that's tomorrow's open, not today's, so
+        # (now - next_open) is a large negative number — there is no
+        # "most recent open" field available to compute a real since_open
+        # value against. Only the close-side buffer is checkable here.
         until_close = (clock.next_close - clock.now).total_seconds()
-        passed = since_open > buffer_seconds and until_close > buffer_seconds
+        passed = until_close > buffer_seconds
         return GuardrailResult(
             self.name,
             passed,
-            f"since_open={since_open}s until_close={until_close}s buffer={buffer_seconds}s",
-            {"since_open_s": since_open, "until_close_s": until_close},
+            f"until_close={until_close}s buffer={buffer_seconds}s",
+            {"until_close_s": until_close},
         )
 
 

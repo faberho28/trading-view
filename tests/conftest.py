@@ -27,9 +27,11 @@ def _clear_alpaca_env(monkeypatch):
 @pytest.fixture
 def market_open_clock() -> MarketClock:
     now = datetime(2026, 9, 8, 15, 0, tzinfo=timezone.utc)  # well within market hours
+    # next_open mirrors real Alpaca semantics: while the market is open,
+    # it's the *next* scheduled open (tomorrow's), never a past timestamp.
     return MarketClock(
         is_open=True,
-        next_open=now - timedelta(hours=5),
+        next_open=now + timedelta(hours=19),
         next_close=now + timedelta(hours=5),
         now=now,
     )
