@@ -112,6 +112,8 @@ class Orchestrator:
                     "signal_action": signal.action.value,
                     "confidence": signal.confidence,
                     "reference_price": str(signal.reference_price),
+                    "rationale": signal.rationale,
+                    "bars_available": len(bars),
                 }
             )
 
