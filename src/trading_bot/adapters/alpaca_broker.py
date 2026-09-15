@@ -64,10 +64,18 @@ class AlpacaBrokerAdapter:
         # time. ~6.5 trading hours/day means `limit` 1H bars need roughly
         # limit/6.5 trading days of history; the 2.2x multiplier plus a
         # 5-day floor comfortably covers weekends/holidays in that window.
+        #
+        # IMPORTANT: when `start` is set, Alpaca paginates forward from
+        # `start` — passing `limit` here would return the EARLIEST `limit`
+        # bars on/after `start`, not the most recent ones. Confirmed in
+        # production: a narrow request returned bars stuck days in the
+        # past instead of reaching "now". So we deliberately omit `limit`
+        # from the request and slice the most recent `limit` bars ourselves
+        # after fetching the full [start, now) range.
         lookback_days = max(5, int(limit / 6.5 * 2.2))
         start = datetime.now(timezone.utc) - timedelta(days=lookback_days)
         request = StockBarsRequest(
-            symbol_or_symbols=symbol, timeframe=TimeFrame.Hour, start=start, limit=limit
+            symbol_or_symbols=symbol, timeframe=TimeFrame.Hour, start=start
         )
         try:
             response = self._data_client.get_stock_bars(request)
@@ -75,6 +83,7 @@ class AlpacaBrokerAdapter:
             raise BrokerError(f"get_bars({symbol}) failed: {exc}") from exc
 
         raw_bars = response[symbol] if hasattr(response, "__getitem__") else response.data[symbol]
+        raw_bars = raw_bars[-limit:] if limit else raw_bars
         return [
             Bar(
                 symbol=symbol,
