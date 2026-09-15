@@ -54,11 +54,20 @@ class AlpacaBrokerAdapter:
         ]
 
     def get_bars(self, symbol: str, limit: int) -> list[Bar]:
+        from datetime import timedelta
+
         from alpaca.data.requests import StockBarsRequest
         from alpaca.data.timeframe import TimeFrame
 
+        # Without an explicit `start`, Alpaca only returns bars from the
+        # current session — `limit` alone does NOT reach back further in
+        # time. ~6.5 trading hours/day means `limit` 1H bars need roughly
+        # limit/6.5 trading days of history; the 2.2x multiplier plus a
+        # 5-day floor comfortably covers weekends/holidays in that window.
+        lookback_days = max(5, int(limit / 6.5 * 2.2))
+        start = datetime.now(timezone.utc) - timedelta(days=lookback_days)
         request = StockBarsRequest(
-            symbol_or_symbols=symbol, timeframe=TimeFrame.Hour, limit=limit
+            symbol_or_symbols=symbol, timeframe=TimeFrame.Hour, start=start, limit=limit
         )
         try:
             response = self._data_client.get_stock_bars(request)
