@@ -45,8 +45,17 @@ class MaxRiskPerTradeGuardrail:
 
 
 class PositionSizingCapGuardrail:
-    """Also computes `proposed_qty` = risk_budget / stop_distance, which the
-    RiskManager feeds forward to the remaining guardrails (per design.md)."""
+    """Also computes `proposed_qty`, which the RiskManager feeds forward to
+    the remaining guardrails (per design.md).
+
+    qty is the SMALLER of the risk-budget-based size (risk_budget /
+    stop_distance) and the position-value-cap-based size (cap_budget /
+    price). Sizing purely off risk budget is only safe when the stop
+    distance is wide enough relative to price; a stop as tight as the risk
+    percentage itself (e.g. both 1%) makes the risk-only qty approach the
+    entire account, which the cap alone can then only reject outright
+    rather than propose a smaller, still-valid trade.
+    """
 
     name = "position_sizing_cap"
 
@@ -55,14 +64,16 @@ class PositionSizingCapGuardrail:
         self.max_position_value_pct = Decimal(str(max_position_value_pct))
 
     def compute_qty(self, signal: Signal, ctx: RiskContext) -> int:
-        if signal.stop_price is None:
+        if signal.stop_price is None or signal.reference_price <= 0:
             return 0
         stop_distance = abs(signal.reference_price - signal.stop_price)
         if stop_distance <= 0:
             return 0
         risk_budget = ctx.account.equity * self.max_risk_pct
-        qty = int(risk_budget / stop_distance)
-        return max(qty, 0)
+        risk_based_qty = int(risk_budget / stop_distance)
+        cap_budget = ctx.account.equity * self.max_position_value_pct
+        cap_based_qty = int(cap_budget / signal.reference_price)
+        return max(min(risk_based_qty, cap_based_qty), 0)
 
     def check(self, signal: Signal, ctx: RiskContext, proposed_qty: int) -> GuardrailResult:
         position_value = signal.reference_price * proposed_qty

@@ -4,7 +4,7 @@ from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
-from trading_bot.domain.models import Position
+from trading_bot.domain.models import Action, Position, Signal
 from trading_bot.risk.guardrails import (
     CorrelationCapGuardrail,
     DailyLossCapGuardrail,
@@ -44,6 +44,34 @@ def test_position_sizing_cap_fail(buy_signal, passing_ctx):
     # 200 qty * 100 price = 20000 > 10% of 100000 = 10000
     result = g.check(buy_signal, passing_ctx, proposed_qty=200)
     assert not result.passed
+
+
+def test_compute_qty_clamps_to_position_cap_when_stop_is_tight(
+    sample_account, no_positions, market_open_clock, passing_session_snapshot
+):
+    """Regression for the 2026-09-15 production incident: a stop distance
+    equal to the risk percentage (both 1%) made risk-only sizing propose
+    ~100% of equity, guaranteeing position_sizing_cap rejected every
+    signal. compute_qty must clamp to the cap instead of ignoring it."""
+    signal = Signal(
+        symbol="GOOGL",
+        action=Action.BUY,
+        confidence=0.6,
+        reference_price=Decimal("333.55"),
+        stop_price=Decimal("330.2145"),  # 1% below reference, like the real incident
+        target_price=Decimal("340.22"),
+        rationale="test tight stop",
+        generated_at=datetime.now(timezone.utc),
+    )
+    ctx = make_ctx(sample_account, no_positions, passing_session_snapshot, Decimal("333.55"), market_open_clock)
+    g = PositionSizingCapGuardrail(max_risk_pct=0.01, max_position_value_pct=0.10)
+
+    qty = g.compute_qty(signal, ctx)
+
+    position_value = qty * signal.reference_price
+    max_allowed = ctx.account.equity * Decimal("0.10")
+    assert position_value <= max_allowed
+    assert qty > 0  # still proposes a real, smaller trade instead of nothing
 
 
 def test_daily_loss_cap_pass(buy_signal, passing_ctx):
