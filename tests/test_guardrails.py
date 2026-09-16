@@ -141,6 +141,34 @@ def test_correlation_cap_fail(buy_signal, sample_account, passing_session_snapsh
     assert not result.passed
 
 
+def test_no_duplicate_position_blocks_reentry_on_already_open_symbol(
+    buy_signal, sample_account, passing_session_snapshot, market_open_clock
+):
+    """Regression for the 2026-09-16 production incident: with no memory
+    across cycles, the orchestrator bought NVDA three separate times and
+    shorted MSFT twice, each treated as a brand-new entry. A symbol
+    already holding a position must be skipped entirely."""
+    from trading_bot.risk.guardrails import NoDuplicatePositionGuardrail
+
+    positions = [
+        Position(symbol="AAPL", qty=29, avg_entry_price=Decimal("334.12"), unrealized_pl=Decimal("0"), sector="unknown"),
+    ]
+    ctx = make_ctx(sample_account, positions, passing_session_snapshot, Decimal("100"), market_open_clock)
+    g = NoDuplicatePositionGuardrail()
+
+    result = g.check(buy_signal, ctx, proposed_qty=1)  # buy_signal.symbol == "AAPL"
+
+    assert not result.passed
+
+
+def test_no_duplicate_position_allows_symbol_with_no_open_position(buy_signal, passing_ctx):
+    from trading_bot.risk.guardrails import NoDuplicatePositionGuardrail
+
+    g = NoDuplicatePositionGuardrail()
+    result = g.check(buy_signal, passing_ctx, proposed_qty=1)
+    assert result.passed
+
+
 def test_correlation_cap_uses_static_basket_not_broker_reported_sector(
     buy_signal, sample_account, passing_session_snapshot, market_open_clock
 ):

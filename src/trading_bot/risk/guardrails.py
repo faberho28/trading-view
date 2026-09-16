@@ -122,6 +122,32 @@ class MaxOpenPositionsGuardrail:
         )
 
 
+class NoDuplicatePositionGuardrail:
+    """Not one of the original 9 — added after a production incident on
+    2026-09-16: the orchestrator generates a signal fresh every cycle with
+    no memory of prior decisions, and nothing stopped it from repeatedly
+    entering a symbol that already had an open position (NVDA was bought
+    3 separate times, MSFT sold/shorted twice, each treated as if it were
+    the first). Bracket orders (see AlpacaBrokerAdapter.place_order) are
+    now the only intended exit path for a position — piling on more
+    entries while an existing bracket is still live just stacks
+    uncoordinated risk on the same symbol instead of letting it exit
+    cleanly. If a symbol already has any open position, skip it entirely
+    until that position closes on its own.
+    """
+
+    name = "no_duplicate_position"
+
+    def check(self, signal: Signal, ctx: RiskContext, proposed_qty: int) -> GuardrailResult:
+        already_open = any(p.symbol == signal.symbol for p in ctx.positions)
+        return GuardrailResult(
+            self.name,
+            not already_open,
+            "already has an open position" if already_open else "no open position",
+            {"already_open": already_open},
+        )
+
+
 class MinRewardRiskGuardrail:
     name = "min_reward_risk_ratio"
 

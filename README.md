@@ -67,9 +67,9 @@ SKIPPED, or HALTED).
 `Settings.from_env()` raises immediately if `TRADING_MODE` is anything other
 than `"paper"` — this is a hard startup gate, not a runtime branch.
 
-## The 9 guardrails
+## The 10 guardrails
 
-`RiskManager.evaluate()` runs all 9 guardrails and does **not** short-circuit
+`RiskManager.evaluate()` runs all 10 guardrails and does **not** short-circuit
 so every verdict is recorded in the audit log — except the kill switch,
 which short-circuits to an immediate rejection when active.
 
@@ -90,6 +90,12 @@ which short-circuits to an immediate rejection when active.
    daily loss cap being hit. The halt **requires an explicit manual reset**
    (`SessionState.manual_reset()`) — it does not auto-clear on next cycle,
    new trading day, or process restart.
+10. **No duplicate position** — reject any new entry on a symbol that
+    already has an open position. Added after a production incident: with
+    no memory across cycles, the orchestrator otherwise re-enters the same
+    symbol on every cycle a breakout signal still holds, stacking
+    uncoordinated risk instead of letting the existing position's bracket
+    order (stop-loss/take-profit) close it out on its own.
 
 ## Testing
 

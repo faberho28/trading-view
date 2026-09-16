@@ -17,6 +17,7 @@ from trading_bot.risk.guardrails import (
     MaxOpenPositionsGuardrail,
     MaxRiskPerTradeGuardrail,
     MinRewardRiskGuardrail,
+    NoDuplicatePositionGuardrail,
     PositionSizingCapGuardrail,
     SlippageGuardGuardrail,
 )
@@ -31,6 +32,7 @@ class RiskManager:
             thresholds.max_risk_per_trade_pct, thresholds.max_position_value_pct
         )
         self.other_guardrails: list[Guardrail] = [
+            NoDuplicatePositionGuardrail(),
             MaxRiskPerTradeGuardrail(thresholds.max_risk_per_trade_pct),
             self.position_sizing,
             DailyLossCapGuardrail(thresholds.daily_loss_cap_pct),
