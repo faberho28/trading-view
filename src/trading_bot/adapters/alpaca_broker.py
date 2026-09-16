@@ -109,16 +109,24 @@ class AlpacaBrokerAdapter:
         return Decimal(str(trade.price))
 
     def place_order(self, intent: TradeIntent) -> OrderResult:
+        from decimal import ROUND_HALF_UP
+
         from alpaca.trading.enums import OrderSide, TimeInForce
         from alpaca.trading.requests import LimitOrderRequest
 
         side = OrderSide.BUY if intent.side.value == "BUY" else OrderSide.SELL
+        # SEC Rule 612 (sub-penny rule): limit orders on stocks priced >= $1
+        # must be in whole-cent increments. intent.limit_price comes from a
+        # real-time trade price (get_latest_price), which can carry more
+        # decimal places than that — confirmed in production: Alpaca
+        # rejected an MSFT order over a $493.115 limit price.
+        limit_price = intent.limit_price.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         request = LimitOrderRequest(
             symbol=intent.symbol,
             qty=intent.qty,
             side=side,
             time_in_force=TimeInForce.DAY,
-            limit_price=float(intent.limit_price),
+            limit_price=float(limit_price),
             client_order_id=intent.client_order_id,
         )
         try:

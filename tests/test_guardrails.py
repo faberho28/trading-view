@@ -141,6 +141,27 @@ def test_correlation_cap_fail(buy_signal, sample_account, passing_session_snapsh
     assert not result.passed
 
 
+def test_correlation_cap_uses_static_basket_not_broker_reported_sector(
+    buy_signal, sample_account, passing_session_snapshot, market_open_clock
+):
+    """Regression for the 2026-09-16 production incident: Alpaca's Position
+    API has no sector field, so AlpacaBrokerAdapter.get_positions() always
+    reports sector="unknown". Trusting that collapsed every open position
+    into one fake basket, letting a 3rd/4th tech position through (or, as
+    seen live, blocking a genuinely diversified position) once anything
+    was already held. The guardrail must derive sector from the static
+    watchlist basket, never from Position.sector."""
+    positions = [
+        Position(symbol="MSFT", qty=1, avg_entry_price=Decimal("1"), unrealized_pl=Decimal("0"), sector="unknown"),
+        Position(symbol="NVDA", qty=1, avg_entry_price=Decimal("1"), unrealized_pl=Decimal("0"), sector="unknown"),
+    ]
+    ctx = make_ctx(sample_account, positions, passing_session_snapshot, Decimal("100"), market_open_clock)
+    g = CorrelationCapGuardrail(basket_max=2)
+    result = g.check(buy_signal, ctx, proposed_qty=1)  # AAPL would be a 3rd tech position
+    assert not result.passed
+    assert result.computed["sector"] == "tech"
+
+
 def test_market_hours_window_pass(buy_signal, passing_ctx):
     g = MarketHoursWindowGuardrail(edge_buffer_minutes=5)
     result = g.check(buy_signal, passing_ctx, proposed_qty=1)

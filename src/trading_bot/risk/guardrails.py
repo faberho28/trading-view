@@ -165,9 +165,13 @@ class CorrelationCapGuardrail:
 
     @staticmethod
     def _sector_for(symbol: str, ctx: RiskContext) -> str:
-        for p in ctx.positions:
-            if p.symbol == symbol:
-                return p.sector
+        # Alpaca's Position API has no sector field — AlpacaBrokerAdapter's
+        # get_positions() always reports "unknown" for it. Trusting that
+        # for already-open positions collapsed every held symbol into one
+        # fake "unknown" basket, silently turning "max 2 per sector" into
+        # "max 2 positions total" as soon as anything was open. Always use
+        # the static watchlist basket instead, regardless of whether the
+        # symbol already has an open position.
         return "tech" if symbol in TECH_BASKET else "index"
 
 
