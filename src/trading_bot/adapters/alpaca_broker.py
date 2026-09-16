@@ -111,23 +111,31 @@ class AlpacaBrokerAdapter:
     def place_order(self, intent: TradeIntent) -> OrderResult:
         from decimal import ROUND_HALF_UP
 
-        from alpaca.trading.enums import OrderSide, TimeInForce
-        from alpaca.trading.requests import LimitOrderRequest
+        from alpaca.trading.enums import OrderClass, OrderSide, TimeInForce
+        from alpaca.trading.requests import LimitOrderRequest, StopLossRequest, TakeProfitRequest
+
+        def cents(price: Decimal) -> float:
+            # SEC Rule 612 (sub-penny rule): orders on stocks priced >= $1
+            # must be in whole-cent increments — confirmed in production:
+            # Alpaca rejected an MSFT order over a $493.115 limit price.
+            return float(price.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
 
         side = OrderSide.BUY if intent.side.value == "BUY" else OrderSide.SELL
-        # SEC Rule 612 (sub-penny rule): limit orders on stocks priced >= $1
-        # must be in whole-cent increments. intent.limit_price comes from a
-        # real-time trade price (get_latest_price), which can carry more
-        # decimal places than that — confirmed in production: Alpaca
-        # rejected an MSFT order over a $493.115 limit price.
-        limit_price = intent.limit_price.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        # A bracket order attaches the stop-loss/take-profit legs the signal
+        # already computed, so the position closes itself when either is
+        # hit — the entry order alone previously left positions open
+        # forever with no exit path (confirmed in production: the first 3
+        # EXECUTED trades on 2026-09-16 had no way to ever close).
         request = LimitOrderRequest(
             symbol=intent.symbol,
             qty=intent.qty,
             side=side,
             time_in_force=TimeInForce.DAY,
-            limit_price=float(limit_price),
+            limit_price=cents(intent.limit_price),
             client_order_id=intent.client_order_id,
+            order_class=OrderClass.BRACKET,
+            take_profit=TakeProfitRequest(limit_price=cents(intent.target_price)),
+            stop_loss=StopLossRequest(stop_price=cents(intent.stop_price)),
         )
         try:
             order = self._trading_client.submit_order(request)
