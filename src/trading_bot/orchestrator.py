@@ -8,10 +8,12 @@ from __future__ import annotations
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 
 from trading_bot.audit import AuditLogger
 from trading_bot.domain.models import (
     Action,
+    Position,
     RiskContext,
     Side,
     TradeIntent,
@@ -161,6 +163,24 @@ class Orchestrator:
             record["final_action"] = "EXECUTED"
             record["order_id"] = order_result.order_id
             self.audit_logger.write(record)
+            # `positions` is fetched once per cycle and shared by reference
+            # across every symbol in self.watchlist (see run_cycle). Without
+            # this, guardrails that count open positions (correlation_cap,
+            # max_open_positions, no_duplicate_position) only see the state
+            # from BEFORE the cycle started — confirmed in production:
+            # AAPL, MSFT, and NVDA all broke out in the same or adjacent
+            # cycles and piled up as 3 simultaneous tech positions despite
+            # correlation_basket_max=2, because neither saw the other's
+            # fill from moments earlier in the same loop.
+            positions.append(
+                Position(
+                    symbol=symbol,
+                    qty=decision.qty,
+                    avg_entry_price=latest_price,
+                    unrealized_pl=Decimal("0"),
+                    sector="unknown",
+                )
+            )
 
         except BrokerError as exc:
             self.session_state.record_api_error()

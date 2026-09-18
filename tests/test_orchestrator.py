@@ -224,6 +224,38 @@ def test_broker_error_on_one_symbol_does_not_abort_the_rest(mocker, tmp_path):
     assert orchestrator.session_state.api_errors_in_window(15) == 1
 
 
+def test_correlation_cap_sees_same_cycle_fills(mocker, tmp_path):
+    """Regression for the production incident spanning 2026-09-16/17:
+    positions is fetched once per cycle and shared by reference across
+    every symbol. Without updating it after each EXECUTED trade,
+    AAPL/MSFT/NVDA breaking out together (or across adjacent cycles before
+    the first one's fill was visible) piled up as 3 simultaneous tech
+    positions despite correlation_basket_max=2 — each guardrail check
+    only saw the state from before the cycle started."""
+    broker = _mock_broker(mocker)
+    audit_path = tmp_path / "audit.jsonl"
+    thresholds = _thresholds().model_copy(update={"correlation_basket_max": 2})
+    orchestrator = Orchestrator(
+        broker=broker,
+        signal_source=BuySignalSource(),
+        risk_manager=RiskManager(thresholds),
+        audit_logger=AuditLogger(audit_path),
+        watchlist=["AAPL", "MSFT", "NVDA"],  # all TECH_BASKET
+        lookback_bars=200,
+    )
+    orchestrator.run_cycle()
+
+    # Only 2 of the 3 tech-basket symbols should have executed; the 3rd
+    # must be blocked by correlation_cap within the SAME cycle, not just
+    # on a later one.
+    assert broker.place_order.call_count == 2
+
+    lines = audit_path.read_text(encoding="utf-8").strip().splitlines()
+    rejected = [line for line in lines if '"final_action": "REJECTED"' in line]
+    assert len(rejected) == 1
+    assert "correlation_cap" in rejected[0]
+
+
 def test_live_mode_gate_rejects(monkeypatch, tmp_path):
     monkeypatch.setenv("ALPACA_API_KEY", "x")
     monkeypatch.setenv("ALPACA_SECRET_KEY", "y")
