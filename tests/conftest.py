@@ -98,7 +98,7 @@ def passing_ctx(sample_account, no_positions, passing_session_snapshot, market_o
     )
 
 
-def make_bars(symbol: str, closes: list[float]) -> list[Bar]:
+def make_bars(symbol: str, closes: list[float], volumes: list[int] | None = None) -> list[Bar]:
     base = datetime(2026, 9, 1, tzinfo=timezone.utc)
     bars = []
     for i, close in enumerate(closes):
@@ -111,7 +111,7 @@ def make_bars(symbol: str, closes: list[float]) -> list[Bar]:
                 high=price * Decimal("1.001"),
                 low=price * Decimal("0.999"),
                 close=price,
-                volume=1000,
+                volume=volumes[i] if volumes else 1000,
             )
         )
     return bars

@@ -34,12 +34,25 @@ class RiskThresholds(BaseModel):
     kill_switch_api_error_window_minutes: int
 
 
+class StrategyThresholds(BaseModel):
+    """Confirmation filters added on top of raw pivot breakouts, per the
+    2026-09-21 decision to require trend + volume + level-strength
+    confirmation instead of firing on the first close past any pivot."""
+
+    trend_ma_period: int
+    volume_lookback: int
+    volume_confirmation_multiplier: float
+    min_level_touches: int
+    level_touch_tolerance_pct: float
+
+
 class AppConfig(BaseModel):
     watchlist: list[WatchlistEntry]
     bar_timeframe: str
     lookback_bars: int
     audit_log_path: str
     risk: RiskThresholds
+    strategy: StrategyThresholds
 
 
 class Settings(BaseModel):
@@ -92,6 +105,13 @@ class Settings(BaseModel):
                 kill_switch_api_error_window_minutes=raw[
                     "kill_switch_api_error_window_minutes"
                 ],
+            ),
+            strategy=StrategyThresholds(
+                trend_ma_period=raw["trend_ma_period"],
+                volume_lookback=raw["volume_lookback"],
+                volume_confirmation_multiplier=raw["volume_confirmation_multiplier"],
+                min_level_touches=raw["min_level_touches"],
+                level_touch_tolerance_pct=raw["level_touch_tolerance_pct"],
             ),
         )
 

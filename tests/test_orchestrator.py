@@ -269,6 +269,11 @@ watchlist:
 bar_timeframe: "1H"
 lookback_bars: 10
 audit_log_path: "logs/audit.jsonl"
+trend_ma_period: 5
+volume_lookback: 5
+volume_confirmation_multiplier: 1.2
+min_level_touches: 2
+level_touch_tolerance_pct: 0.003
 max_risk_per_trade_pct: 0.01
 max_position_value_pct: 0.10
 daily_loss_cap_pct: 0.03

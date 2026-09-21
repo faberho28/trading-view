@@ -59,13 +59,37 @@ python -m trading_bot
 
 This starts an in-process loop that sleeps until the next hour boundary
 (+30 seconds), then runs one cycle: fetch bars for the watchlist, generate a
-signal per symbol, validate any non-HOLD signal through all 9 guardrails,
+signal per symbol, validate any non-HOLD signal through all 10 guardrails,
 place the order if approved, and append one JSONL record per symbol to
 `logs/audit.jsonl` regardless of outcome (HOLD, REJECTED, EXECUTED, ERROR,
 SKIPPED, or HALTED).
 
 `Settings.from_env()` raises immediately if `TRADING_MODE` is anything other
 than `"paper"` — this is a hard startup gate, not a runtime branch.
+
+## Signal confirmation filters
+
+A raw pivot breakout (price crosses the last confirmed swing high/low) fires
+on any noise. Three filters, added 2026-09-21 after reviewing a week of live
+signals that entered mid-move with no sense of conviction, sit on top of the
+raw breakout before it becomes a BUY/SELL signal:
+
+1. **Level strength** (`min_level_touches`, `level_touch_tolerance_pct`) — a
+   price level only counts as real support/resistance once it has recurred
+   at least twice within a small tolerance band, not on a single wiggle.
+2. **Trend agreement** (`trend_ma_period`) — a BUY breakout must close above
+   the trend moving average, a SELL breakout below it. Counter-trend
+   breakouts are rejected as the ones most likely to be false starts.
+3. **Volume confirmation** (`volume_lookback`,
+   `volume_confirmation_multiplier`) — the breakout bar's volume must exceed
+   its trailing baseline by the configured multiplier. A breakout on
+   below-average volume rarely holds.
+
+All three are deliberately statistical/measurable rather than subjective
+chart-pattern recognition (head-and-shoulders, flags, etc.) — see
+`src/trading_bot/signals/technical.py` for the reasoning. A rejected
+breakout still shows up in `logs/audit.jsonl` as HOLD, with the rationale
+naming exactly which filter blocked it.
 
 ## The 10 guardrails
 

@@ -16,6 +16,15 @@ watchlist:
 bar_timeframe: "1H"
 lookback_bars: 200
 
+# Signal confirmation filters (added 2026-09-21): a raw pivot breakout alone
+# fires on any noise; these require trend agreement, above-average volume,
+# and a level tested more than once before treating a breakout as real.
+trend_ma_period: 50                 # bars for the trend-direction moving average
+volume_lookback: 20                 # bars averaged for the "normal" volume baseline
+volume_confirmation_multiplier: 1.2 # breakout bar's volume must exceed baseline * this
+min_level_touches: 2                # a level must recur at least this many times
+level_touch_tolerance_pct: 0.003    # price band (0.3%) to treat two pivots as the same level
+
 # Risk guardrail thresholds (Requirement 3, spec)
 max_risk_per_trade_pct: 0.01        # 1% of equity
 max_position_value_pct: 0.10        # 10% of equity

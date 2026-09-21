@@ -26,7 +26,14 @@ def build_orchestrator(settings: Settings) -> Orchestrator:
         settings.alpaca_api_key, settings.alpaca_secret_key
     )
     broker = AlpacaBrokerAdapter(trading_client, data_client)
-    signal_source = TechnicalSignal()
+    strategy_cfg = settings.config.strategy
+    signal_source = TechnicalSignal(
+        trend_ma_period=strategy_cfg.trend_ma_period,
+        volume_lookback=strategy_cfg.volume_lookback,
+        volume_confirmation_multiplier=strategy_cfg.volume_confirmation_multiplier,
+        min_level_touches=strategy_cfg.min_level_touches,
+        level_touch_tolerance_pct=strategy_cfg.level_touch_tolerance_pct,
+    )
     risk_manager = RiskManager(settings.config.risk)
     audit_logger = AuditLogger(settings.config.audit_log_path)
     watchlist = [entry.symbol for entry in settings.config.watchlist]
