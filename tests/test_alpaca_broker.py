@@ -92,3 +92,26 @@ def test_place_order_attaches_bracket_stop_loss_and_take_profit(mocker):
     assert submitted_request.order_class.value == "bracket"
     assert submitted_request.stop_loss.stop_price == 330.78
     assert submitted_request.take_profit.limit_price == 340.80
+
+
+def test_has_active_stop_counts_held_bracket_legs_as_protected(mocker):
+    """Regression for the 2026-09-25 production incident: querying only
+    status=OPEN missed a freshly-opened bracket's stop-loss leg sitting in
+    Alpaca's transitional 'held' status moments after the entry filled,
+    producing a false 'unprotected' positive that would have fired a
+    redundant protective stop on a perfectly healthy position."""
+    trading_client = mocker.Mock()
+    held_stop_leg = mocker.Mock(order_type=mocker.Mock(__str__=lambda self: "OrderType.STOP"), status=mocker.Mock(__str__=lambda self: "OrderStatus.HELD"))
+    trading_client.get_orders.return_value = [held_stop_leg]
+    adapter = AlpacaBrokerAdapter(trading_client, mocker.Mock())
+
+    assert adapter.has_active_stop("MSFT") is True
+
+
+def test_has_active_stop_ignores_canceled_stop_orders(mocker):
+    trading_client = mocker.Mock()
+    canceled_stop = mocker.Mock(order_type=mocker.Mock(__str__=lambda self: "OrderType.STOP"), status=mocker.Mock(__str__=lambda self: "OrderStatus.CANCELED"))
+    trading_client.get_orders.return_value = [canceled_stop]
+    adapter = AlpacaBrokerAdapter(trading_client, mocker.Mock())
+
+    assert adapter.has_active_stop("MSFT") is False

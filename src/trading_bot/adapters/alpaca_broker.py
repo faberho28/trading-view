@@ -158,16 +158,28 @@ class AlpacaBrokerAdapter:
         except Exception as exc:  # noqa: BLE001
             raise BrokerError(f"cancel_order({order_id}) failed: {exc}") from exc
 
+    # Terminal/dead order statuses — anything else (including "held", a
+    # bracket child leg waiting on its sibling/parent to settle) still
+    # counts as protection. Confirmed in production: querying only
+    # status=OPEN missed a freshly-opened bracket's stop-loss leg sitting
+    # in "held" moments after entry filled, producing a false "unprotected"
+    # positive that would have fired a redundant protective stop.
+    _DEAD_ORDER_STATUSES = frozenset({"canceled", "expired", "rejected", "done_for_day", "replaced", "filled"})
+
     def has_active_stop(self, symbol: str) -> bool:
         from alpaca.trading.enums import QueryOrderStatus
         from alpaca.trading.requests import GetOrdersRequest
 
-        request = GetOrdersRequest(status=QueryOrderStatus.OPEN, symbols=[symbol])
+        request = GetOrdersRequest(status=QueryOrderStatus.ALL, symbols=[symbol], limit=50)
         try:
             orders = self._trading_client.get_orders(request)
         except Exception as exc:  # noqa: BLE001
             raise BrokerError(f"has_active_stop({symbol}) failed: {exc}") from exc
-        return any("stop" in str(getattr(o, "order_type", "")).lower() for o in orders)
+        return any(
+            "stop" in str(getattr(o, "order_type", "")).lower()
+            and str(getattr(o, "status", "")).rsplit(".", 1)[-1].lower() not in self._DEAD_ORDER_STATUSES
+            for o in orders
+        )
 
     def submit_protective_stop(self, symbol: str, qty: int, stop_price: Decimal) -> OrderResult:
         from decimal import ROUND_HALF_UP
