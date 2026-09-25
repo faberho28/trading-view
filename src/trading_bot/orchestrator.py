@@ -35,6 +35,7 @@ class Orchestrator:
         lookback_bars: int,
         session_state: SessionState | None = None,
         daily_loss_cap_pct: float = 0.03,
+        protective_stop_fallback_pct: float = 0.01,
     ) -> None:
         self.broker = broker
         self.signal_source = signal_source
@@ -44,6 +45,7 @@ class Orchestrator:
         self.lookback_bars = lookback_bars
         self.session_state = session_state or SessionState()
         self.daily_loss_cap_pct = daily_loss_cap_pct
+        self.protective_stop_fallback_pct = Decimal(str(protective_stop_fallback_pct))
 
     def run_cycle(self) -> None:
         cycle_id = str(uuid.uuid4())
@@ -100,8 +102,66 @@ class Orchestrator:
                 )
             return
 
+        self._ensure_positions_protected(cycle_id, positions)
+
         for symbol in self.watchlist:
             self._process_symbol(cycle_id, symbol, account, positions, clock)
+
+    def _ensure_positions_protected(self, cycle_id, positions) -> None:
+        """Safety net added 2026-09-25 after a production incident: 3 open
+        positions (GOOGL, MSFT, SPY) sat for about a week with NO active
+        stop-loss order — the original bracket leg had been cancelled
+        (most likely swept up by hand while clearing unrelated stuck
+        orders) and nothing noticed, so they kept losing well past the
+        1% the strategy intends to risk. Every cycle now checks each open
+        position for a live stop order and re-attaches one immediately if
+        missing.
+        """
+        for position in positions:
+            try:
+                if self.broker.has_active_stop(position.symbol):
+                    continue
+                # Anchor to the CURRENT price, not avg_entry_price: once a
+                # position has already drifted past the intended stop
+                # distance from entry (exactly the failure this guards
+                # against), an entry-based stop price ends up on the wrong
+                # side of the market and Alpaca rejects it outright
+                # ("stop price must be less/greater than current price").
+                # Confirmed in production: GOOGL/MSFT/SPY had all moved
+                # well past their 1%-from-entry level by the time this ran.
+                latest_price = self.broker.get_latest_price(position.symbol)
+                stop_price = self._fallback_stop_price(position, latest_price)
+                order_result = self.broker.submit_protective_stop(
+                    position.symbol, position.qty, stop_price
+                )
+                self.audit_logger.write(
+                    {
+                        "cycle_id": cycle_id,
+                        "symbol": position.symbol,
+                        "final_action": "PROTECTIVE_STOP_REATTACHED",
+                        "severity": "CRITICAL",
+                        "detail": "open position had no active stop-loss order; re-attached one",
+                        "qty": position.qty,
+                        "avg_entry_price": str(position.avg_entry_price),
+                        "new_stop_price": str(stop_price),
+                        "order_id": order_result.order_id,
+                    }
+                )
+            except BrokerError as exc:
+                self.session_state.record_api_error()
+                self.audit_logger.write(
+                    {
+                        "cycle_id": cycle_id,
+                        "symbol": position.symbol,
+                        "final_action": "ERROR",
+                        "error": f"position protection check failed: {exc}",
+                    }
+                )
+
+    def _fallback_stop_price(self, position, latest_price: Decimal) -> Decimal:
+        if position.qty < 0:  # short: protective stop sits above current price
+            return latest_price * (1 + self.protective_stop_fallback_pct)
+        return latest_price * (1 - self.protective_stop_fallback_pct)  # long: below
 
     def _process_symbol(self, cycle_id, symbol, account, positions, clock) -> None:
         record: dict = {"cycle_id": cycle_id, "symbol": symbol, "mode": "paper"}

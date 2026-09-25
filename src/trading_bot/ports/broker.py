@@ -34,6 +34,10 @@ class BrokerPort(Protocol):
 
     def is_market_open(self) -> MarketClock: ...
 
+    def has_active_stop(self, symbol: str) -> bool: ...
+
+    def submit_protective_stop(self, symbol: str, qty: int, stop_price: Decimal) -> OrderResult: ...
+
 
 class BrokerError(Exception):
     """Raised by adapters when the underlying broker SDK call fails.

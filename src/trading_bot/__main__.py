@@ -46,6 +46,7 @@ def build_orchestrator(settings: Settings) -> Orchestrator:
         watchlist=watchlist,
         lookback_bars=settings.config.lookback_bars,
         daily_loss_cap_pct=settings.config.risk.daily_loss_cap_pct,
+        protective_stop_fallback_pct=settings.config.risk.protective_stop_fallback_pct,
     )
 
 

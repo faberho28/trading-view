@@ -32,6 +32,7 @@ class RiskThresholds(BaseModel):
     kill_switch_consecutive_losses: int
     kill_switch_api_errors: int
     kill_switch_api_error_window_minutes: int
+    protective_stop_fallback_pct: float = 0.01
 
 
 class StrategyThresholds(BaseModel):
@@ -105,6 +106,7 @@ class Settings(BaseModel):
                 kill_switch_api_error_window_minutes=raw[
                     "kill_switch_api_error_window_minutes"
                 ],
+                protective_stop_fallback_pct=raw["protective_stop_fallback_pct"],
             ),
             strategy=StrategyThresholds(
                 trend_ma_period=raw["trend_ma_period"],

@@ -12,6 +12,7 @@ from trading_bot.domain.models import (
     Action,
     MarketClock,
     OrderResult,
+    Position,
     Signal,
 )
 from trading_bot.orchestrator import Orchestrator
@@ -256,6 +257,65 @@ def test_correlation_cap_sees_same_cycle_fills(mocker, tmp_path):
     assert "correlation_cap" in rejected[0]
 
 
+def test_reattaches_stop_when_position_has_none(mocker, tmp_path):
+    """Regression for the 2026-09-25 production incident: GOOGL, MSFT, and
+    SPY sat open for about a week with no active stop-loss order (the
+    original bracket leg had been cancelled) and nothing noticed, losing
+    well past the intended 1% risk. Every cycle must now detect this and
+    re-attach a fallback stop immediately."""
+    broker = _mock_broker(mocker)
+    broker.get_positions.return_value = [
+        Position(symbol="MSFT", qty=-20, avg_entry_price=Decimal("493.50"), unrealized_pl=Decimal("-478"), sector="tech"),
+    ]
+    broker.has_active_stop.return_value = False
+    # Price already ran well past the entry-based 1% stop (the exact
+    # failure this guards against) — the fallback must anchor to THIS,
+    # not to avg_entry_price, or Alpaca rejects the order outright.
+    broker.get_latest_price.return_value = Decimal("517.42")
+    broker.submit_protective_stop.return_value = OrderResult(
+        order_id="stop-order-1", client_order_id="stop-1", status="accepted",
+        filled_qty=0, filled_avg_price=None, submitted_at=datetime.now(timezone.utc),
+    )
+    audit_path = tmp_path / "audit.jsonl"
+    orchestrator = Orchestrator(
+        broker=broker,
+        signal_source=HoldSignalSource(),
+        risk_manager=RiskManager(_thresholds()),
+        audit_logger=AuditLogger(audit_path),
+        watchlist=WATCHLIST,
+        lookback_bars=200,
+        protective_stop_fallback_pct=0.01,
+    )
+    orchestrator.run_cycle()
+
+    # short position: fallback stop sits ABOVE current price (517.42 * 1.01)
+    broker.submit_protective_stop.assert_called_once_with("MSFT", -20, Decimal("522.5942"))
+    lines = audit_path.read_text(encoding="utf-8").strip().splitlines()
+    reattached = [line for line in lines if "PROTECTIVE_STOP_REATTACHED" in line]
+    assert len(reattached) == 1
+    assert '"severity": "CRITICAL"' in reattached[0]
+
+
+def test_does_not_touch_position_that_already_has_a_stop(mocker, tmp_path):
+    broker = _mock_broker(mocker)
+    broker.get_positions.return_value = [
+        Position(symbol="MSFT", qty=-20, avg_entry_price=Decimal("493.50"), unrealized_pl=Decimal("-478"), sector="tech"),
+    ]
+    broker.has_active_stop.return_value = True
+    audit_path = tmp_path / "audit.jsonl"
+    orchestrator = Orchestrator(
+        broker=broker,
+        signal_source=HoldSignalSource(),
+        risk_manager=RiskManager(_thresholds()),
+        audit_logger=AuditLogger(audit_path),
+        watchlist=WATCHLIST,
+        lookback_bars=200,
+    )
+    orchestrator.run_cycle()
+
+    broker.submit_protective_stop.assert_not_called()
+
+
 def test_live_mode_gate_rejects(monkeypatch, tmp_path):
     monkeypatch.setenv("ALPACA_API_KEY", "x")
     monkeypatch.setenv("ALPACA_SECRET_KEY", "y")
@@ -285,6 +345,7 @@ market_edge_buffer_minutes: 5
 kill_switch_consecutive_losses: 3
 kill_switch_api_errors: 5
 kill_switch_api_error_window_minutes: 15
+protective_stop_fallback_pct: 0.01
 """,
         encoding="utf-8",
     )

@@ -37,5 +37,11 @@ market_edge_buffer_minutes: 5       # skip trades within 5 min of open/close
 kill_switch_consecutive_losses: 3
 kill_switch_api_errors: 5
 kill_switch_api_error_window_minutes: 15
+# Safety net (added 2026-09-25): if an open position's stop-loss order is
+# ever found missing (cancelled by hand, by Alpaca, or otherwise), the
+# orchestrator re-attaches a fresh stop at this distance from avg entry
+# price — independent of whatever stop distance the strategy originally
+# intended, since that price is lost once the original bracket leg is gone.
+protective_stop_fallback_pct: 0.01
 
 audit_log_path: "logs/audit.jsonl"

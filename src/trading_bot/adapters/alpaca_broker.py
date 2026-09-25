@@ -158,6 +158,50 @@ class AlpacaBrokerAdapter:
         except Exception as exc:  # noqa: BLE001
             raise BrokerError(f"cancel_order({order_id}) failed: {exc}") from exc
 
+    def has_active_stop(self, symbol: str) -> bool:
+        from alpaca.trading.enums import QueryOrderStatus
+        from alpaca.trading.requests import GetOrdersRequest
+
+        request = GetOrdersRequest(status=QueryOrderStatus.OPEN, symbols=[symbol])
+        try:
+            orders = self._trading_client.get_orders(request)
+        except Exception as exc:  # noqa: BLE001
+            raise BrokerError(f"has_active_stop({symbol}) failed: {exc}") from exc
+        return any("stop" in str(getattr(o, "order_type", "")).lower() for o in orders)
+
+    def submit_protective_stop(self, symbol: str, qty: int, stop_price: Decimal) -> OrderResult:
+        from decimal import ROUND_HALF_UP
+
+        from alpaca.trading.enums import OrderSide, TimeInForce
+        from alpaca.trading.requests import StopOrderRequest
+
+        # qty carries the position's own sign (negative = short, per
+        # get_positions()): closing a short means BUYing, closing a long
+        # means SELLing.
+        side = OrderSide.BUY if qty < 0 else OrderSide.SELL
+        price = stop_price.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        request = StopOrderRequest(
+            symbol=symbol,
+            qty=abs(qty),
+            side=side,
+            time_in_force=TimeInForce.DAY,
+            stop_price=float(price),
+        )
+        try:
+            order = self._trading_client.submit_order(request)
+        except Exception as exc:  # noqa: BLE001
+            raise BrokerError(f"submit_protective_stop({symbol}) failed: {exc}") from exc
+        return OrderResult(
+            order_id=str(order.id),
+            client_order_id=str(order.client_order_id),
+            status=str(order.status),
+            filled_qty=int(float(order.filled_qty or 0)),
+            filled_avg_price=(
+                Decimal(str(order.filled_avg_price)) if order.filled_avg_price else None
+            ),
+            submitted_at=order.submitted_at or datetime.now(timezone.utc),
+        )
+
     def is_market_open(self) -> MarketClock:
         try:
             clock = self._trading_client.get_clock()
